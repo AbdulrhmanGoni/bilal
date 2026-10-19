@@ -1,0 +1,12 @@
+{
+  "name": "bilal",
+  "description": "GNOME Extension to display Muslims prayer times, how much times is remaining to the next prayer time, and notify when it comes",
+  "uuid": "bilal@king.it",
+  "shell-version": [
+    "46",
+    "47",
+    "48",
+    "49",
+    "50"
+  ]
+}

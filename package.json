@@ -1,0 +1,28 @@
+{
+    "name": "bilal",
+    "version": "0.0.1",
+    "description": "GNOME Extension to display Muslims prayer times, how much times is remaining to the next prayer time, and notify when it comes",
+    "type": "module",
+    "private": true,
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/AbdulrhmanGoni/bilal.git"
+    },
+    "author": "AbdulrhmanGoni abdulrhmangoni@gmail.com",
+    "license": "MIT",
+    "bugs": {
+        "url": "https://github.com/AbdulrhmanGoni/bilal/issues"
+    },
+    "homepage": "https://github.com/AbdulrhmanGoni/bilal#readme",
+    "sideEffects": false,
+    "scripts": {
+        "build": "rm -rf dist && tsc && cp metadata.json dist && cp stylesheet.css dist",
+        "sync": "chmod +x install.sh && ./install.sh"
+    },
+    "devDependencies": {
+        "@girs/gjs": "^5.5.0",
+        "@girs/gnome-shell": "^50.0.4",
+        "@girs/soup-3.0": "^5.5.0",
+        "typescript": "^5.9.3"
+    }
+}
