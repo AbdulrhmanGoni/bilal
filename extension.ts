@@ -134,7 +134,8 @@ export default class BilalExtension extends Extension {
         });
         panelBox.add_child(this._label);
         this._indicator.add_child(panelBox);
-        Main.panel.addToStatusArea('bilal', this._indicator);
+        // position 0 + 'left' puts the countdown at the far left of the top bar.
+        Main.panel.addToStatusArea('bilal', this._indicator, -1, 'left');
 
         this._tick();
         this._tickSource = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, TICK_SECONDS, () => {
