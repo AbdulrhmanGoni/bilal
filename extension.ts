@@ -4,7 +4,9 @@
  * Keeps a live countdown in the top bar showing the remaining time until the
  * next of the five daily prayers in Makkah, Saudi Arabia, and lists all prayer
  * times in the dropdown. A desktop notification is raised when a prayer time
- * starts.
+ * starts. Once the Adhan has passed, the countdown switches to the Iqamah
+ * (congregation) time of that prayer, and a second notification is raised
+ * when the Iqamah time arrives.
  *
  * Prayer times come from aladhan.com (Umm Al-Qura calculation method), which
  * reports them in Asia/Riyadh local time.
@@ -29,6 +31,16 @@ type PrayerName = typeof PRAYERS[number];
 const CITY = 'Makkah';
 const COUNTRY = 'SA';
 const CALC_METHOD = 4; // 4 = Umm Al-Qura University, Makkah
+
+/** Minutes between the Adhan and the Iqamah (when the prayer actually starts). */
+const IQAMAH_MINUTES: Record<PrayerName, number> = {
+    Fajr: 25,
+    Dhuhr: 20,
+    Asr: 20,
+    Maghrib: 10,
+    Isha: 20,
+};
+
 const TICK_SECONDS = 1;
 const RETRY_SECONDS = 30;
 
@@ -98,6 +110,17 @@ function nextPrayerOf(timings: ClockMinutes, nowMinutes: number): NextPrayer | n
     return null;
 }
 
+/** Most recent of the five prayers whose time has already passed today. */
+function lastPrayerOf(timings: ClockMinutes, nowMinutes: number): PrayerName | null {
+    let last: PrayerName | null = null;
+    for (const name of PRAYERS) {
+        if (timings[name] <= nowMinutes) {
+            last = name;
+        }
+    }
+    return last;
+}
+
 export default class BilalExtension extends Extension {
     private readonly _session = new Soup.Session();
 
@@ -113,8 +136,14 @@ export default class BilalExtension extends Extension {
     private _today: { dateStr: string, timings: ClockMinutes } | null = null;
     private _tomorrow: { dateStr: string, timings: ClockMinutes } | null = null;
 
-    private _nextName: PrayerName | null = null;
-    // The dropdown is rebuilt whenever this key changes (date or next prayer).
+    // Notification bookkeeping. Keys are `${dateStr}|${PrayerName}` so a new
+    // day (or a new prayer) is announced exactly once. The first state seen
+    // after enabling is used as a baseline so old prayers aren't replayed.
+    private _notificationsPrimed = false;
+    private _lastAdhanKey: string | null = null;
+    private _iqamahNotifiedKey = '';
+
+    // The dropdown is rebuilt whenever this key changes (date or highlighted prayer).
     private _menuKey = '';
     private _lastLabel = '';
 
@@ -156,7 +185,9 @@ export default class BilalExtension extends Extension {
         this._label = null;
         this._today = null;
         this._tomorrow = null;
-        this._nextName = null;
+        this._notificationsPrimed = false;
+        this._lastAdhanKey = null;
+        this._iqamahNotifiedKey = '';
         this._menuKey = '';
         this._lastLabel = '';
     }
@@ -171,11 +202,29 @@ export default class BilalExtension extends Extension {
             this._fetch(dateStr, false);
         }
 
+        const timings = this._today?.dateStr === dateStr ? this._today.timings : null;
+        let last: PrayerName | null = null;
+        let iqamahAt = 0;
+        if (timings) {
+            last = lastPrayerOf(timings, nowMinutes);
+            if (last) {
+                iqamahAt = timings[last] + IQAMAH_MINUTES[last];
+            }
+        }
+        const awaitingIqamah = last !== null && nowMinutes < iqamahAt;
+
+        if (timings) {
+            this._updateNotifications(dateStr, nowMinutes, timings, last);
+        }
+
         const next = this._nextPrayer(now, dateStr, nowMinutes);
 
-        // Top bar label — only rewritten when the text actually changes.
+        // Top bar label. Between the Adhan and the Iqamah the next prayer's
+        // countdown is paused and the Iqamah countdown is shown instead.
         let text: string;
-        if (next) {
+        if (awaitingIqamah) {
+            text = `${last} Iqamah in ${formatCountdown(iqamahAt - nowMinutes)}`;
+        } else if (next) {
             text = `${next.name} in ${formatCountdown(next.remainingMinutes)}`;
         } else {
             text = Date.now() < this._retryNotBefore ? 'no network' : '…';
@@ -186,22 +235,64 @@ export default class BilalExtension extends Extension {
         }
 
         // Dropdown — rebuilt when the date or the highlighted prayer changes.
-        const menuKey = `${dateStr}|${next?.name ?? ''}`;
+        // While waiting for the Iqamah, the current prayer stays highlighted.
+        const highlighted = awaitingIqamah ? last : next?.name ?? null;
+        const menuKey = `${dateStr}|${highlighted ?? ''}`;
         if (this._today && menuKey !== this._menuKey) {
             this._menuKey = menuKey;
-            this._rebuildMenu(next?.name ?? null);
+            this._rebuildMenu(highlighted);
+        }
+    }
+
+    /**
+     * Raises the Adhan notification when a prayer's time arrives and the
+     * Iqamah reminder once its waiting period is over.
+     */
+    private _updateNotifications(
+        dateStr: string,
+        nowMinutes: number,
+        timings: ClockMinutes,
+        last: PrayerName | null,
+    ) {
+        if (!this._notificationsPrimed) {
+            this._notificationsPrimed = true;
+            if (last) {
+                const key = `${dateStr}|${last}`;
+                this._lastAdhanKey = key;
+                // If the extension is enabled after the Iqamah already came,
+                // suppress that stale reminder as well.
+                if (nowMinutes >= timings[last] + IQAMAH_MINUTES[last]) {
+                    this._iqamahNotifiedKey = key;
+                }
+            }
+            return;
         }
 
-        // When the countdown moves past a prayer, announce that prayer started.
-        if (next && next.name !== this._nextName) {
-            const starting: PrayerName | null = this._nextName;
-            this._nextName = next.name;
-            if (starting !== null) {
+        if (!last) {
+            return;
+        }
+
+        const key = `${dateStr}|${last}`;
+        const iqamahAt = timings[last] + IQAMAH_MINUTES[last];
+
+        if (key !== this._lastAdhanKey) {
+            this._lastAdhanKey = key;
+            // Skip a stale Adhan notice if the Iqamah already passed while the
+            // machine was suspended; the Iqamah reminder below is the useful one.
+            if (nowMinutes < iqamahAt) {
                 Main.notify(
-                    `🕌 Time for ${starting}`,
-                    `The ${starting} prayer has begun in ${CITY}.`,
+                    `🕌 Time for ${last}`,
+                    `The ${last} prayer has begun in ${CITY}.`,
                 );
             }
+        }
+
+        if (nowMinutes >= iqamahAt && this._iqamahNotifiedKey !== key) {
+            this._iqamahNotifiedKey = key;
+            Main.notify(
+                `🕌 Iqamah for ${last}`,
+                `The ${last} prayer is starting now in ${CITY}.`,
+            );
         }
     }
 
@@ -266,7 +357,7 @@ export default class BilalExtension extends Extension {
         }
     }
 
-    private _rebuildMenu(nextName: PrayerName | null) {
+    private _rebuildMenu(highlighted: PrayerName | null) {
         if (!this._indicator || !this._today) {
             return;
         }
@@ -291,7 +382,14 @@ export default class BilalExtension extends Extension {
             });
             item.add_child(timeLabel);
 
-            if (name === nextName) {
+            const iqamahLabel = new St.Label({
+                text: `Iqamah ${format12h(this._today.timings[name] + IQAMAH_MINUTES[name])}`,
+                y_align: Clutter.ActorAlign.CENTER,
+                style_class: 'prayer-iqamah-time',
+            });
+            item.add_child(iqamahLabel);
+
+            if (name === highlighted) {
                 item.setOrnament(PopupMenu.Ornament.DOT);
                 item.label.add_style_class_name('prayer-next-name');
             }

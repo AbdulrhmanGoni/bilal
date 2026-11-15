@@ -9,6 +9,13 @@
     margin-left: 24px;
 }
 
+/* Muted Iqamah time shown next to the Adhan time */
+.prayer-iqamah-time {
+    margin-left: 18px;
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 0.9em;
+}
+
 /* Muted header row (location + date) */
 .prayer-header {
     color: rgba(255, 255, 255, 0.6);
