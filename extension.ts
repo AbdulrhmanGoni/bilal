@@ -146,6 +146,9 @@ export default class BilalExtension extends Extension {
     // The dropdown is rebuilt whenever this key changes (date or highlighted prayer).
     private _menuKey = '';
     private _lastLabel = '';
+    // Whether the panel label currently shows the Iqamah countdown, which is
+    // styled in warning colors to stand out from the regular prayer countdown.
+    private _labelIsIqamah = false;
 
     enable() {
         this._indicator = new PanelMenu.Button(0.0, 'Bilal', false);
@@ -190,6 +193,7 @@ export default class BilalExtension extends Extension {
         this._iqamahNotifiedKey = '';
         this._menuKey = '';
         this._lastLabel = '';
+        this._labelIsIqamah = false;
     }
 
     private _tick() {
@@ -232,6 +236,17 @@ export default class BilalExtension extends Extension {
         if (text !== this._lastLabel) {
             this._label?.set_text(text);
             this._lastLabel = text;
+        }
+
+        // While the Iqamah countdown is showing, tint the panel label in
+        // warning colors so it catches the eye instead of blending in.
+        if (this._label && this._labelIsIqamah !== awaitingIqamah) {
+            this._labelIsIqamah = awaitingIqamah;
+            if (awaitingIqamah) {
+                this._label.add_style_class_name('prayer-iqamah-countdown');
+            } else {
+                this._label.remove_style_class_name('prayer-iqamah-countdown');
+            }
         }
 
         // Dropdown — rebuilt when the date or the highlighted prayer changes.

@@ -9,6 +9,12 @@
     margin-left: 24px;
 }
 
+/* Top bar countdown while waiting for the Iqamah — warning colors so it
+   stands apart from the normal next-prayer countdown */
+.prayer-iqamah-countdown {
+    color: #ffb020;
+}
+
 /* Muted Iqamah time shown next to the Adhan time */
 .prayer-iqamah-time {
     margin-left: 18px;
